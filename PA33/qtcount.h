@@ -16,7 +16,7 @@ class qtcount : public quadtree {
 public:
     qtcount(PNG& im) : quadtree(im) {}
 
-    bool prunableHelper(Node* root, Node* curr, const int tol);
+    bool prunableHelper(Node* root, Node* curr, const int tol) const;
 
 private:
     bool prunable(Node* node, const int tol) const;
