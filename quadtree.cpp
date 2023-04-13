@@ -6,9 +6,11 @@
  * This file will be used for grading.
  *
  */
-
+#include <iostream>
+#include <stack>
 #include "quadtree.h"
 using namespace std;
+
 // Node constructor, given.
 quadtree::Node::Node(pair<int, int> ul, int d, RGBAPixel a, double v)
     : upLeft(ul), dim(d), avg(a), var(v), NW(nullptr), NE(nullptr), SE(nullptr), SW(nullptr) {}
@@ -31,97 +33,77 @@ quadtree& quadtree::operator=(const quadtree& rhs) {
 }
 
 quadtree::quadtree(PNG& imIn) {
-    /* Your code here! */
-    
-    int dim = 0;
-    int h = imIn.height();
-    while (h > 1){
-        dim++;
-        h = h/2;
-    }
-    stats s = stats(imIn);
-
-    pair<int,int> ul1 = pair(0,0);
-    pair<int,int> ul2 = pair(imIn.height()/2,0);
-
-    pair<int,int> ul3 = pair(0,imIn.height()/2 );
-    pair<int,int> ul4 = pair(imIn.height()/2,imIn.height()/2);
-
-
-
-    Node* qTree = new Node(ul1,dim,s.getAvg(ul1,dim), s.getVar(ul1,dim));
-    if (root != nullptr){
-        clear();
-    }
-    qTree->NW = buildTree(s,ul1,dim-1);
-    qTree->NE = buildTree(s,ul2,dim-1);
-    qTree->SW = buildTree(s,ul3,dim-1);
-    qTree->SE = buildTree(s,ul4,dim-1);
-
-
-    root = qTree;
+    edge = imIn.width();
+    int dim = int(log2(edge));
+    stats s(imIn);
+    root = buildTree(s, make_pair(0,0), dim);
 
 }
 
 quadtree::Node* quadtree::buildTree(stats& s, pair<int, int> ul, int dim) {
     /* Your code here! */
-    
-    if (dim == 0){
-        Node* qTree1 = new Node(ul,dim,s.getAvg(ul,dim), s.getVar(ul,dim));
- 
-        return qTree1;
-    }else{
-        Node* qTree2 = new Node(ul,dim,s.getAvg(ul,dim), s.getVar(ul,dim));
-        pair<int,int> ul2 = pair((power(2,dim-1)+ul.first),ul.second);
-        pair<int,int> ul3 = pair(ul.first,(power(2,dim-1)+ul.second));
-        pair<int,int> ul4 = pair((power(2,dim-1)+ul.first),(power(2,dim-1)+ul.second));
-        qTree2->NW = buildTree(s,ul,dim-1);
-        qTree2->NE = buildTree(s,ul2,dim-1);
-        qTree2->SW = buildTree(s,ul3,dim-1);
-        qTree2->SE = buildTree(s,ul4,dim-1);
-    }
-    return nullptr;
-}
-// help function
-int power(int base, int power){
-    if (power == 0){
-        return 1;
-    }
-    while(power > 1){
-        base = base * base;
-    }
-    return base;
-}
+        Node* n =  new Node (ul, dim, s.getAvg(ul,dim), s.getVar(ul,dim));
+        if (dim == 0) {
+            return n;   
+        } else {  
 
-//helper 2
-void quadtree::set(PNG& png, Node* node) const{
-    stats s = stats(png);
+           pair<int,int> NWul = ul;
+           pair<int, int> NEul = make_pair(ul.first + pow(2, (dim -1)), ul.second);
+           pair<int,int> SWul = make_pair(ul.first, pow(2, (dim - 1)) + ul.second);
+           pair<int,int> SEul = make_pair(ul.first + pow(2, (dim -1)), ul.second + pow(2, dim - 1));
 
-    if (node->NW == nullptr && node->NE == nullptr && node->SW == nullptr && node->SE == nullptr){
-        
-        RGBAPixel px = RGBAPixel(s.getSum('r',node->upLeft,0),s.getSum('g',node->upLeft,0),s.getSum('b',node->upLeft,0));
-        *png.getPixel(node->upLeft.first,node->upLeft.second) = px;
-        
-    }
+           n->NW = buildTree(s, ul, dim - 1);
+           n->NE = buildTree(s, NEul, dim - 1);
+           n->SE = buildTree(s, SEul, dim - 1);
+           n->SW = buildTree(s, SWul, dim - 1);     
+           return n;
+
+        }
 
 }
-
 
 
 PNG quadtree::render() const {
     /* Your code here! */
-    int di =   root->dim;
-
+    if (edge == 0) {
+         PNG img(0,0);
+         return img;
+    }
     
-    int wh =  power(2,di);
-
-    PNG png1 = PNG(wh,wh);
+    int dim = int(log2(edge));
+    PNG im(pow(2,dim), pow(2,dim));
+    cout << "root:" << endl;
+ 
+    renderHelper(root, im);
+    return im;
     
-    set(png1,root);    
-    
-    return png1;
 }
 
+int k = 0;
+void quadtree::renderHelper(Node* node, PNG &im) const {
+    if (node == nullptr) {
+        cout << "return in render" << endl;
+        return;
+    }
+
+    if (node->NW == nullptr && node->SE == nullptr && node->SW == nullptr && node->NE == nullptr) {
+       //cout << k++ << endl;
+        int nside = pow(2, node->dim); 
+       for (int x = node->upLeft.first; x < node->upLeft.first + nside; x++) {
+        for (int y = node->upLeft.second; y < node->upLeft.second + nside; y++) {
+            *im.getPixel(x, y) = node->avg; 
+        }
+
+       }           
+    }
+    
+    else {
+        renderHelper(node->NW, im);
+        renderHelper(node->NE, im);
+        renderHelper(node->SW, im);
+        renderHelper(node->SE, im);     
+    }
+}
 
 int quadtree::idealPrune(const int leaves) const {
     /* Your code here! */
@@ -130,44 +112,94 @@ int quadtree::idealPrune(const int leaves) const {
 
 int quadtree::pruneSize(const int tol) const {
     /* Your code here! */
+    if (root->NW == nullptr){
+        return prunesizehelper(root,tol);
+    }
     int count = 0;
     if (prunable(root->NW,tol)){
+    
+        count++;
+
+    }else{
         count += prunesizehelper(root->NW,tol);
+
     }
 
-    if (prunable(root->NE,tol)){
+     if (prunable(root->NE,tol)){
+    
+        count++;
+
+    }else{
         count += prunesizehelper(root->NE,tol);
+
     }
 
-    if (prunable(root->SW,tol)){
+     if (prunable(root->SW,tol)){
+    
+        count++;
+
+    }else{
         count += prunesizehelper(root->SW,tol);
+
     }
 
-    if (prunable(root->SE,tol)){
+
+     if (prunable(root->SE,tol)){
+    
+        count++;
+
+    }else{
         count += prunesizehelper(root->SE,tol);
+
     }
+
     return count;
 }
 
 int quadtree::prunesizehelper(Node* node,const int tol ) const{
     
     if (node->NW == nullptr && node->NE == nullptr && node->SW == nullptr && node->SE == nullptr)     {
-       if (prunable(node,tol)){
-        return 0;
-       }else{
-        return 1;
-       }
+       return 1;
     }  else {
-        int a = prunesizehelper(node->NW,tol) ;
-        int b = prunesizehelper(node->NE,tol) ;
-        int c = prunesizehelper(node->SW,tol) ;
-        int d = prunesizehelper(node->SE,tol) ;
+         int count = 0;
+    if (prunable(node->NW,tol)){
+    
+        count++;
 
-        if (a+b+c+d == 0){
-            return 1;
-        }else{
-            return a+b+c+d;
-        }
+    }else{
+        count += prunesizehelper(node->NW,tol);
+
+    }
+
+     if (prunable(node->NE,tol)){
+    
+        count++;
+
+    }else{
+        count += prunesizehelper(node->NE,tol);
+
+    }
+
+     if (prunable(node->SW,tol)){
+    
+        count++;
+
+    }else{
+        count += prunesizehelper(node->SW,tol);
+
+    }
+
+
+     if (prunable(node->SE,tol)){
+    
+        count++;
+
+    }else{
+        count += prunesizehelper(node->SE,tol);
+
+    }
+
+       return count;
         
     }
 }
@@ -175,68 +207,136 @@ int quadtree::prunesizehelper(Node* node,const int tol ) const{
 
 void quadtree::prune(const int tol) {
     /* Your code here! */
-    
-    if (!prunable(root->NW,tol)){
-        prunehelper(root->NW,tol);
-    }else{
-        prunehelper2(root->NW);
-        root->NW = nullptr;
-    }
+    if (prunable(root, tol)) {
+        clearhelper(root->NE);
+        clearhelper(root->NW);
+        clearhelper(root->SE);
+        clearhelper(root->SW);
+
+ 
 
 
-    if (!prunable(root->NE,tol)){
-        prunehelper(root->NE,tol);
-    }else{
-        prunehelper2(root->NE);
         root->NE = nullptr;
-    }
-
-    if (!prunable(root->SW,tol)){
-        prunehelper(root->SW,tol);
-    }else{
-        prunehelper2(root->SW);
+        root->NW = nullptr;
         root->SW = nullptr;
-    }
-
-    if (!prunable(root->SE,tol)){
-        prunehelper(root->SE,tol);
-    }else{
-        prunehelper2(root->SE);
         root->SE = nullptr;
+        
+       // prunehelper2(root);
+    } else {
+        prunehelper(root,tol);
+
     }
+    
+    // if (!prunable(root->NW,tol)){
+    //     prunehelper(root->NW,tol);
+    // }else{
+    //     prunehelper2(root->NW);
+    //     root->NW = nullptr;
+    // }
+
+
+    // if (!prunable(root->NE,tol)){
+    //     prunehelper(root->NE,tol);
+    // }else{
+    //     prunehelper2(root->NE);
+    //     root->NE = nullptr;
+    // }
+
+    // if (!prunable(root->SW,tol)){
+    //     prunehelper(root->SW,tol);
+    // }else{
+    //     prunehelper2(root->SW);
+    //     root->SW = nullptr;
+    // }
+
+    // if (!prunable(root->SE,tol)){
+    //     prunehelper(root->SE,tol);
+    // }else{
+    //     clearhelper(root->SE);
+    //     root->SE = nullptr;
+    // }
     
 }
 
 void quadtree::prunehelper(Node* node,const int tol ){
+    if (node == nullptr) {
+        return;
+    }
    
-       if (prunable(node->NW,tol)){
-        prunehelper2(node->NW);
-        node->NW = nullptr;
+       if (prunable(node->NW,tol) && node->NW != nullptr){
+
+        clearhelper(node->NW->SE);
+        clearhelper(node->NW->NW);
+        clearhelper(node->NW->NE);
+        clearhelper(node->NW->SW);
+        //clearhelper(node->NW);
+        node->NW->SE = nullptr;
+        node->NW->NW = nullptr;
+        node->NW->NE = nullptr;
+        node->NW->SW = nullptr;
+        
+
+       } else {
+        prunehelper(node->NW, tol);
+       }
+
+       if (prunable(node->NE,tol) && node->NE != nullptr){
+        //clearhelper(node->NE);
+
+        clearhelper(node->NE->SE);
+        clearhelper(node->NE->NW);
+        clearhelper(node->NE->NE);
+        clearhelper(node->NE->SW);
+
+        node->NE->SE = nullptr;
+        node->NE->NW = nullptr;
+        node->NE->NE = nullptr;
+        node->NE->SW = nullptr;
+       
+
+       } else {
+        prunehelper(node->NE, tol);
+       }
+
+       if (prunable(node->SW,tol) && node->SW != nullptr){
+        clearhelper(node->SW->SE);
+        clearhelper(node->SW->NW);
+        clearhelper(node->SW->NE);
+        clearhelper(node->SW->SW);
+        node->SW->SE = nullptr;
+        node->SW->NW = nullptr;
+        node->SW->NE = nullptr;
+        node->SW->SW = nullptr;
+
+       } else {
+        prunehelper(node->SW, tol);
 
        }
 
-       if (!prunable(node->NE,tol)){
-        prunehelper2(node->NE);
-        node->NE = nullptr;
+       if (prunable(node->SE,tol) && node->SE != nullptr) {
 
-       }
+        clearhelper(node->SE->SE);
+        clearhelper(node->SE->NW);
+        clearhelper(node->SE->NE);
+        clearhelper(node->SE->SW);
+        //clearhelper(node->SE);
+        node->SE->SE = nullptr;
+        node->SE->NW = nullptr;
+        node->SE->NE = nullptr;
+        node->SE->SW = nullptr;
 
-       if (!prunable(node->SW,tol)){
-        prunehelper2(node->SW);
-        node->SW = nullptr;
-
-       }
-
-       if (!prunable(node->SE,tol)){
-        prunehelper2(node->SE);
-        node->SE = nullptr;
-
+       } else {
+        prunehelper(node->SE, tol);
        }
     
 
  }
 
 void quadtree::prunehelper2(Node* node ){
+
+    if (node == nullptr) {
+        return;
+    }
     if (node->NW == nullptr && node->NE == nullptr && node->SW == nullptr && node->SE == nullptr)     {
         delete(node);
     }   else {
@@ -252,7 +352,6 @@ void quadtree::prunehelper2(Node* node ){
     }
 }
 
-
 void quadtree::clear() {
     /* your code here */
     clearhelper(root);
@@ -261,53 +360,59 @@ void quadtree::clear() {
 }
 
 //helper function 3
-void quadtree::clearhelper(Node* root){
-    if (root->NW != nullptr){
-        clearhelper(root->NW);
+void quadtree::clearhelper(Node* n){
+    if (n == nullptr) {
+        return;
+    }
+    if (n->NW != nullptr){
+        clearhelper(n->NW);
         
     }
 
-     if (root->NE != nullptr){
-        clearhelper(root->NE);
+     if (n->NE != nullptr){
+        clearhelper(n->NE);
     }
     
-     if (root->SW != nullptr){
-        clearhelper(root->SW);
+     if (n->SW != nullptr){
+        clearhelper(n->SW);
     } 
     
-    if (root->SE != nullptr){
-        clearhelper(root->SE);
+    if (n->SE != nullptr){
+        clearhelper(n->SE);
     }
 
-    delete(root);
-    root = nullptr;
+    delete(n);
+    n = nullptr;
 
 }
+ 
+
+
 void quadtree::copy(const quadtree& orig) {
     /* your code here */
-    root = copyhelper(root);
+    edge = orig.edge;
+    root = copyhelper(orig.root);
+
 }
 //helper function 4
 
-quadtree::Node* quadtree::copyhelper(Node* root){
-    Node* nod = new Node(root->upLeft,root->dim, root->avg,root->var);
-    if (root->NW != nullptr){
-        nod->NW = copyhelper(root->NW);
-        
-    }
-
-     if (root->NE != nullptr){
-        nod->NE = copyhelper(root->NE);
-    }
-    
-     if (root->SW != nullptr){
-        nod->SW = copyhelper(root->SW);
+int i = 0;
+quadtree::Node* quadtree::copyhelper(Node* n){
+    if (n == nullptr) {
+        return nullptr;
     } 
-    
-    if (root->SE != nullptr){
-        nod->SE = copyhelper(root->SE);
-    }
-
-    return nod;
+    //cout << i++ << endl;
+     Node* nod = new Node(n->upLeft,n->dim, n->avg,n->var);
+        nod->NW = copyhelper(n->NW);
+        nod->NE = copyhelper(n->NE);
+        nod->SW = copyhelper(n->SW);
+        nod->SE = copyhelper(n->SE);
+        return nod;
 
 }
+
+
+
+
+
+
